@@ -1,7 +1,6 @@
-chainlit==2.9.6
+chainlit==2.11.1
 dotenv==0.9.9
-langchain==1.2.6
-langchain-groq==1.1.1
-langgraph==1.0.6
+langchain==1.2.15
+langchain-groq==1.1.2
 tavily==1.1.0
 rich==15.0.0
