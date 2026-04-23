@@ -7,6 +7,7 @@ from langchain.messages import HumanMessage, AIMessageChunk, ToolMessage, Remove
 from langchain.tools import tool, InjectedToolCallId
 from langchain.agents.middleware import before_agent
 import chainlit as cl
+import os
 
 from dotenv import load_dotenv
 from groq import APIStatusError
@@ -14,6 +15,7 @@ from datetime import datetime, UTC
 from langchain_groq import ChatGroq
 from typing import Dict, Any, Annotated
 from tavily import TavilyClient
+import asyncio
 
 from state import DeepAgentState, TODO
 from prompts import WRITE_TODOS_DESCRIPTION, TODO_USAGE_INSTRUCTIONS, SIMPLE_RESEARCH_INSTRUCTIONS
@@ -36,6 +38,20 @@ def write_todos(
     Returns:
         Command to update agent state with new TODO list
     """
+    task_status = {
+        "pending": cl.TaskStatus.READY,
+        "in_progress": cl.TaskStatus.RUNNING,
+        "completed": cl.TaskStatus.DONE
+    }
+
+    task_list = cl.TaskList()
+    asyncio.run(task_list.send())
+    for item in todos:
+        task = cl.Task(title=item["content"], status=task_status[item["status"]])
+        asyncio.run(task_list.add_task(task))
+        asyncio.run(task_list.update())
+
+
     return Command(
         update={
             "todos": todos,
@@ -114,7 +130,9 @@ async def start():
 
     model = ChatGroq(
         model="openai/gpt-oss-120b",
-        temperature=0
+        temperature=0,
+        max_tokens=int(os.getenv("MAX_TOKENS", 800)),
+        max_retries=int(os.getenv("MAX_RETRIES", 3))
     )
 
     app = create_agent(
@@ -149,26 +167,56 @@ async def main(message: cl.Message):
 
     try:
         answer = cl.Message(content="")
-        await answer.send()
+        # await answer.send()
+
+        steps = {}
 
         config: RunnableConfig = {
             "configurable": {"thread_id": cl.context.session.thread_id}
         }
+
+        async for event in app.astream_events(
+            {"messages": [HumanMessage(content=message.content)], "todos": []},
+            config,
+            version="v2",
+        ):
+            event_type = event["event"]
+
+            if event_type == "on_chat_model_stream":
+                chunk = event["data"]["chunk"]
+                # answer.content += chunk.content
+                await answer.stream_token(chunk.content)
+
+            elif event_type == "on_tool_start":
+                tool_name = event['name']
+                step = cl.Step(name=tool_name, type="tool")
+                step.input = event["data"]["input"]
+                await step.__aenter__()
+                steps[tool_name] = step
+
+            elif event_type == "on_tool_end":
+                tool_name = event['name']
+                step = steps.get(tool_name)
+                if step:
+                    step.output = event["data"]["output"]
+                    await step.__aexit__(None, None, None)
+
+        await answer.send()
     
         # Stream the agent's response
-        for event in app.stream(
-            {"messages": [HumanMessage(content=message.content)]},
-            config,
-            stream_mode="messages",
-        ):
-            msg = event[0]
-            if isinstance(msg, AIMessageChunk) and msg.content:
-                answer.content += msg.content
-                await answer.update()
+        # for event in app.stream(
+        #     {"messages": [HumanMessage(content=message.content)]},
+        #     config,
+        #     stream_mode="messages",
+        # ):
+        #     msg = event[0]
+        #     if isinstance(msg, AIMessageChunk) and msg.content:
+        #         answer.content += msg.content
+        #         await answer.update()
 
-            if isinstance(msg, AIMessageChunk) and msg.tool_calls:
-                tool_name = msg.tool_calls[0]["name"]
-                answer.content += f"\n\n{tool_name}\n"
+        #     if isinstance(msg, AIMessageChunk) and msg.tool_calls:
+        #         tool_name = msg.tool_calls[0]["name"]
+        #         answer.content += f"\n\n{tool_name}\n"
     except APIStatusError as e:
         print(e)
         if e.status_code == 429:
@@ -176,6 +224,7 @@ async def main(message: cl.Message):
                 content="⚠️ Too many requests"
             ).send()
     except Exception as e:
+        print(e)
         await cl.Message(
             content="Something went wrong"
         ).send()

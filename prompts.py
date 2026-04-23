@@ -12,7 +12,7 @@ WRITE_TODOS_DESCRIPTION = """Create and manage structured task lists for trackin
 
 ## Best Practices  
 - Only one in_progress task at a time
-- Mark completed immediately when task is fully done
+- Always Mark completed immediately when task is fully done
 - Always send the full updated list when making changes
 - Prune irrelevant items to keep list focused
 
@@ -32,7 +32,7 @@ TODO_USAGE_INSTRUCTIONS = """Based upon the user's request:
 1. Use the write_todos tool to create TODO at the start of a user request, per the tool description.
 2. After you accomplish a TODO, use the read_todos to read the TODOs in order to remind yourself of the plan. 
 3. Reflect on what you've done and the TODO.
-4. Mark you task as completed, and proceed to the next TODO.
+4. Always Mark your task as completed, and proceed to the next TODO.
 5. Continue this process until you have completed all TODOs.
 
 IMPORTANT: Always create a research plan of TODOs and conduct research following the above guidelines for ANY user request.
